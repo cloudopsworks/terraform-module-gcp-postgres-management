@@ -1,9 +1,16 @@
-# Module configuration
+##
+# (c) 2021-2026
+#     Cloud Ops Works LLC - https://cloudops.works/
+#     Find us on:
+#       GitHub: https://github.com/cloudopsworks
+#       WebSite: https://cloudops.works
+#     Distributed Under Apache v2.0 License
+#
 
-# users: {}                          # (Optional) Map of PostgreSQL users to create and manage.
+## users definition - YAML format
 # users:
 #   <user_ref>:
-#     name: "username"               # (Required) Name of the PostgreSQL user.
+#     name: "username"               # (Required) Name of the user.
 #     grant: "owner"                 # (Required) Grant type: owner, readwrite, readonly.
 #     db_ref: "db_ref"               # (Optional) Reference to databases key; takes precedence over database_name.
 #     database_name: "dbname"        # (Optional) Database name when db_ref not set.
@@ -17,13 +24,17 @@
 #     inherit: true                  # (Optional) Inherit privileges. Default: true.
 #     create_role: false             # (Optional) Can create roles. Default: false.
 #     connection_limit: -1           # (Optional) Connection limit. Default: -1.
-#     import: false                  # (Optional) Import existing user (no-op creation). Default: false.
+#     import: false                  # (Optional) Import existing user. Default: false.
 #     connection_string_type: ""     # (Optional) jdbc, dotnet, odbc, gopq, node-pg, psycopg, rustpg.
 #     hoop:
-#       access_control: []           # (Optional) Access control groups for this user's hoop connection.
-users: {}
+#       access_control: []           # (Optional) Access control groups.
+variable "users" {
+  description = "Map of PostgreSQL users — see inline docs for full YAML structure."
+  type        = any
+  default     = {}
+}
 
-# roles: {}                          # (Optional) Map of PostgreSQL roles (no-login) to create.
+## roles definition - YAML format
 # roles:
 #   <role_ref>:
 #     name: "rolename"               # (Required) Name of the role.
@@ -36,10 +47,14 @@ users: {}
 #     inherit: true                  # (Optional) Default: true.
 #     create_role: false             # (Optional) Default: false.
 #     connection_limit: -1           # (Optional) Default: -1.
-#     import: false                  # (Optional) Import existing role. Default: false.
-roles: {}
+#     import: false                  # (Optional) Default: false.
+variable "roles" {
+  description = "Map of PostgreSQL roles (no-login) — see inline docs for full YAML structure."
+  type        = any
+  default     = {}
+}
 
-# databases: {}                      # (Optional) Map of PostgreSQL databases to create.
+## databases definition - YAML format
 # databases:
 #   <db_ref>:
 #     name: "dbname"                 # (Required) Name of the database.
@@ -53,55 +68,83 @@ roles: {}
 #     encoding: "UTF8"               # (Optional) Default: UTF8.
 #     allow_connections: true        # (Optional) Default: true.
 #     alter_object_ownership: false  # (Optional) Default: false.
-#     import: false                  # (Optional) Import existing database. Default: false.
+#     import: false                  # (Optional) Default: false.
 #     schemas:
 #       - name: "schema_name"        # (Required) Schema name.
 #         owner: "schema_owner"      # (Optional) Owner of the schema.
-#         reuse: true                # (Optional) Use if_not_exists. Default: true.
-#         cascade_on_delete: false   # (Optional) Drop cascade on delete. Default: false.
-databases: {}
+#         reuse: true                # (Optional) Default: true.
+#         cascade_on_delete: false   # (Optional) Default: false.
+variable "databases" {
+  description = "Map of PostgreSQL databases — see inline docs for full YAML structure."
+  type        = any
+  default     = {}
+}
 
-# hoop: {}                           # (Optional) Hoop connection output settings.
+## hoop attributes - YAML format
 # hoop:
 #   enabled: false                   # (Optional) Enable hoop output. Default: false.
 #   agent_id: "uuid"                 # (Required when enabled+enterprise) Hoop agent UUID.
-#   community: true                  # (Optional) true=null output (GCP SM has no sub-key); false=enterprise. Default: true.
+#   community: true                  # (Optional) true=null (GCP SM no sub-key); false=enterprise. Default: true.
 #   import: false                    # (Optional) Import existing connection. Default: false.
-#   default_sslmode: "require"       # (Optional) SSL mode used in hoop secrets. Default: require.
-#   tags: {}                         # (Optional) Tags map to attach to hoop connections.
-#   access_control: []               # (Optional) Default access control groups for all hoop connections.
-hoop: {}
+#   default_sslmode: "require"       # (Optional) Default: require.
+#   tags: {}                         # (Optional) Tags map.
+#   access_control: []               # (Optional) Access control groups.
+variable "hoop" {
+  description = "Hoop connection settings — see inline docs."
+  type        = any
+  default     = {}
+}
 
-# cloudsql: {}                       # (Optional) Cloud SQL instance connection settings.
+## cloudsql connection attributes - YAML format
 # cloudsql:
 #   enabled: false                   # (Optional) Use Cloud SQL instance as connection source. Default: false.
 #   instance_name: ""                # (Required when enabled) Cloud SQL instance name.
 #   project_id: ""                   # (Optional) Override GCP project. Default: current project.
 #   from_secret: false               # (Optional) Read credentials from GCP Secret Manager. Default: false.
-#   secret_id: ""                    # (Required when from_secret=true) Secret Manager secret ID (JSON with host/port/username/password/dbname).
+#   secret_id: ""                    # (Required when from_secret=true) Secret Manager secret ID.
 #   server_name: ""                  # (Optional) Override server_name used in hoop output and secret paths.
 #   sslmode: "require"               # (Optional) SSL mode. Default: require.
 #   superuser: false                 # (Optional) Is admin user a superuser. Default: false.
-cloudsql: {}
+variable "cloudsql" {
+  description = "Cloud SQL instance connection attributes — see inline docs."
+  type        = any
+  default     = {}
+}
 
-# direct: {}                         # (Optional) Direct connection attributes (used when cloudsql and hoop are disabled).
+## direct connection attributes - YAML format
 # direct:
-#   server_name: "server"            # (Required) Server name identifier used in secret paths.
-#   host: "localhost"                # (Required) PostgreSQL host.
-#   port: 5432                       # (Required) PostgreSQL port.
-#   username: "user"                 # (Required) Admin username.
-#   password: "pass"                 # (Required) Admin password.
-#   engine: "postgresql"             # (Optional) Engine name stored in credentials. Default: postgresql.
-#   db_name: "postgres"              # (Required) Default database name for provider connection.
-#   sslmode: "require"               # (Optional) SSL mode. Default: require.
-#   superuser: false                 # (Optional) Is admin user a superuser. Default: false.
-direct: {}
+#   server_name: "server"            # (Required) Server name identifier.
+#   host: "localhost"                # (Required) Host.
+#   port: 5432                       # (Required) Port.
+#   username: "user"                 # (Required) Username.
+#   password: "pass"                 # (Required) Password.
+#   engine: "postgresql"             # (Optional) Default: postgresql.
+#   db_name: "postgres"              # (Required) Default database name.
+#   sslmode: "require"               # (Optional) Default: require.
+#   superuser: false                 # (Optional) Default: false.
+variable "direct" {
+  description = "Direct connection attributes — see inline docs."
+  type        = any
+  default     = {}
+}
 
-# password_rotation_period: 90       # (Optional) Password rotation period in days. Default: 90.
-password_rotation_period: 90
+# password_rotation_period: 90
+variable "password_rotation_period" {
+  description = "(Optional) Password rotation period in days. Default: 90."
+  type        = number
+  default     = 90
+}
 
-# force_reset: false                 # (Optional) Force reset all passwords. Default: false.
-force_reset: false
+# force_reset: false
+variable "force_reset" {
+  description = "(Optional) Force reset all passwords. Default: false."
+  type        = bool
+  default     = false
+}
 
-# secrets_kms_key_name: null         # (Optional) GCP KMS key name (full resource name) to encrypt secrets at rest. Default: null (Google-managed).
-secrets_kms_key_name: null
+# secrets_kms_key_name: ""
+variable "secrets_kms_key_name" {
+  description = "(Optional) GCP KMS key name to encrypt secrets at rest."
+  type        = string
+  default     = null
+}
