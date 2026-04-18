@@ -22,7 +22,7 @@ output "databases" {
   description = "Map of created PostgreSQL databases."
   value = {
     for k, db in var.databases : k => {
-      name = postgresql_database.this[k].name
+      name = module.db.databases[k].name
     }
   }
 }

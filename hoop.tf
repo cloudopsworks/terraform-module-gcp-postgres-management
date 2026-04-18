@@ -60,7 +60,7 @@ resource "google_secret_manager_secret" "hoop_owner_user" {
 resource "google_secret_manager_secret_version" "hoop_owner_user" {
   for_each    = local.hoop_enterprise ? { for k, db in var.databases : k => db if try(db.create_owner, false) } : {}
   secret      = google_secret_manager_secret.hoop_owner_user[each.key].id
-  secret_data = postgresql_role.owner[each.key].name
+  secret_data = module.db.owner_usernames[each.key]
   lifecycle { create_before_destroy = true }
 }
 
@@ -77,7 +77,7 @@ resource "google_secret_manager_secret" "hoop_owner_pass" {
 resource "google_secret_manager_secret_version" "hoop_owner_pass" {
   for_each    = local.hoop_enterprise ? { for k, db in var.databases : k => db if try(db.create_owner, false) } : {}
   secret      = google_secret_manager_secret.hoop_owner_pass[each.key].id
-  secret_data = random_password.owner[each.key].result
+  secret_data = module.db.owner_passwords[each.key]
   lifecycle { create_before_destroy = true }
 }
 
@@ -163,7 +163,7 @@ resource "google_secret_manager_secret" "hoop_user_pass" {
 resource "google_secret_manager_secret_version" "hoop_user_pass" {
   for_each    = local.hoop_enterprise ? var.users : {}
   secret      = google_secret_manager_secret.hoop_user_pass[each.key].id
-  secret_data = random_password.user[each.key].result
+  secret_data = module.db.user_passwords[each.key]
   lifecycle { create_before_destroy = true }
 }
 
