@@ -8,8 +8,10 @@
 #
 
 module "db" {
-  source    = "git::https://github.com/cloudopsworks/terraform-module-postgres-management.git?ref=v1.0.0"
+  source    = "git::https://github.com/cloudopsworks/terraform-module-postgres-management.git?ref=v1.0.1"
   providers = { postgresql = postgresql }
+
+  org = var.org
 
   databases                = var.databases
   users                    = var.users
