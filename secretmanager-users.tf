@@ -19,8 +19,8 @@ locals {
   }
   user_credentials = {
     for k, user in var.users : k => {
-      username    = user.name
-      password    = random_password.user[k].result
+      username    = module.db.user_usernames[k]
+      password    = module.db.user_passwords[k]
       host        = local.psql.host
       port        = local.psql.port
       dbname      = try(user.db_ref, "") != "" ? var.databases[user.db_ref].name : user.database_name

@@ -16,8 +16,8 @@ locals {
   }
   owner_credentials = {
     for k, db in var.databases : k => {
-      username    = postgresql_role.owner[k].name
-      password    = random_password.owner[k].result
+      username    = module.db.owner_usernames[k]
+      password    = module.db.owner_passwords[k]
       host        = local.psql.host
       port        = local.psql.port
       dbname      = db.name
@@ -28,24 +28,13 @@ locals {
   }
 }
 
-resource "random_password" "owner" {
-  for_each         = { for k, db in var.databases : k => db if try(db.create_owner, false) }
-  length           = 20
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-  min_lower        = 2
-  min_upper        = 2
-  min_numeric      = 2
-  min_special      = 2
-}
-
 resource "google_secret_manager_secret" "owner" {
   for_each  = { for k, db in var.databases : k => db if try(db.create_owner, false) }
   secret_id = local.owner_secret_ids[each.key]
   project   = data.google_project.current.project_id
 
   labels = merge(local.all_tags, {
-    "pg-username" = postgresql_role.owner[each.key].name
+    "pg-username" = module.db.owner_usernames[each.key]
     "pg-database" = each.value.name
     "pg-server"   = local.psql.server_name
   })
