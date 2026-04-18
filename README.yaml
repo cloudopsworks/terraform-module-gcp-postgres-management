@@ -1,4 +1,4 @@
-name: Terraform Transit Gateway Module
+name: terraform-module-gcp-postgres-management
 #logo: logo/logo.jpg
 badges:
   - name: Latest Release
@@ -18,7 +18,7 @@ copyrights:
 github_repo: <owner/repo>
 
 description: |-
-  <description>
+  Terraform module that manages PostgreSQL users, roles, and databases on an existing server, storing credentials in GCP Secret Manager with optional Hoop enterprise connection output.
 
 # Introduction to the project
 introduction: |-
