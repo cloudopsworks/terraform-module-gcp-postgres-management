@@ -2,11 +2,11 @@ name: terraform-module-gcp-postgres-management
 #logo: logo/logo.jpg
 badges:
   - name: Latest Release
-    image: https://img.shields.io/github/release/<owner/repo>.svg?style=for-the-badge
-    url: https://github.com/<owner/repo>/releases/latest
+    image: https://img.shields.io/github/release/cloudopsworks/terraform-module-gcp-postgres-management.svg?style=for-the-badge
+    url: https://github.com/cloudopsworks/terraform-module-gcp-postgres-management/releases/latest
   - name: Last Updated
-    image: https://img.shields.io/github/last-commit/<owner/repo>.svg?style=for-the-badge
-    url: https://github.com/<owner/repo>/commits
+    image: https://img.shields.io/github/last-commit/cloudopsworks/terraform-module-gcp-postgres-management.svg?style=for-the-badge
+    url: https://github.com/cloudopsworks/terraform-module-gcp-postgres-management/commits
 
 license: "APACHE2"
 
@@ -15,23 +15,304 @@ copyrights:
     url: "https://cloudopsworks.co"
     year: "2026"
 
-github_repo: <owner/repo>
+github_repo: cloudopsworks/terraform-module-gcp-postgres-management
 
 description: |-
-  Terraform module that manages PostgreSQL users, roles, and databases on an existing server, storing credentials in GCP Secret Manager with optional Hoop enterprise connection output.
+  Terraform module that manages PostgreSQL users, roles, databases, and credentials on Google Cloud Platform. It delegates all PostgreSQL engine operations to [terraform-module-postgres-management](https://github.com/cloudopsworks/terraform-module-postgres-management) and handles the GCP-specific concerns: connecting through Cloud SQL Auth Proxy or a direct host, storing per-user credentials as versioned secrets in GCP Secret Manager (with optional CMEK encryption via Cloud KMS), and emitting structured Hoop enterprise connection output for each user.
 
 # Introduction to the project
 introduction: |-
-#  This is an introduction.
+  This module is the GCP adapter layer for PostgreSQL database management within the CloudOps Works Terraform ecosystem. It covers three distinct responsibilities:
+
+  **1. Connection source — Cloud SQL or direct host**
+
+  When `cloudsql.enabled = true` the module connects through the Cloud SQL Auth Proxy, resolving the instance connection string automatically from `cloudsql.instance_name`. Admin credentials can be supplied inline or read from an existing GCP Secret Manager secret (`cloudsql.from_secret`). When `cloudsql.enabled = false` the module accepts a `direct` connection block with an explicit host, port, username and password, which is useful for non-Cloud-SQL PostgreSQL servers running on GCE, GKE, or anywhere reachable from the Terraform runner.
+
+  **2. Credential storage — GCP Secret Manager**
+
+  Every user managed by the module gets a dedicated, versioned secret in GCP Secret Manager. The secret payload is a JSON object containing `host`, `port`, `username`, `password`, `dbname`, `engine`, `sslmode`, and `connection_string` keys. Secrets are labeled with org and environment tags and can be encrypted with a customer-managed Cloud KMS key (`secrets_kms_key_name`). Password rotation is controlled by `password_rotation_period` (days) and `force_reset`.
+
+  **3. Hoop integration**
+
+  When `hoop.enabled = true` the module produces a `hoop_connections` output that follows the CloudOps Works Hoop connection schema. In community mode (`hoop.community = true`) each user's connection block contains a `null` value (the credential is already in GCP Secret Manager). In enterprise mode (`hoop.community = false`) the block embeds the full connection string and optional access-control groups, ready to be consumed by the Hoop gateway configuration.
+
+  **Delegation to base module**
+
+  All PostgreSQL DDL operations (CREATE DATABASE, CREATE ROLE, GRANT) are performed by the upstream [`terraform-module-postgres-management`](https://github.com/cloudopsworks/terraform-module-postgres-management) module, which is sourced via `module "db"` in `module-db.tf`. This module pins the upstream source at a specific tag and passes through the `databases`, `users`, `roles`, `password_rotation_period`, and `force_reset` variables unchanged.
 
 # How to use this project
 usage: |-
+  Add the module as a Terragrunt dependency and configure it through `.boilerplate/inputs.yaml` (or the equivalent `locals.local_vars` map in your `terragrunt.hcl`).
+
+  ```hcl
+  # terragrunt.hcl — minimal wiring (boilerplate pattern)
+  terraform {
+    source = "git::https://github.com/cloudopsworks/terraform-module-gcp-postgres-management.git?ref=v1.1.1"
+  }
+
+  locals {
+    local_vars = yamldecode(file("${get_terragrunt_dir()}/.boilerplate/inputs.yaml"))
+  }
+
+  inputs = merge(
+    local.local_vars,
+    {
+      org = local.org          # injected by the parent hierarchy
+      extra_tags = local.tags  # injected by the parent hierarchy
+    }
+  )
+  ```
+
+  **Full `.boilerplate/inputs.yaml` reference**
+
+  ```yaml
+  # ── Connection source ──────────────────────────────────────────────────────────
+
+  cloudsql:                            # (Optional) Cloud SQL instance connection settings.
+    enabled: true                      # (Required within block) Use Cloud SQL Auth Proxy. Default: false.
+    instance_name: "my-project:us-central1:my-pg-instance"
+                                       # (Required when enabled) Cloud SQL instance connection name.
+    project_id: "my-gcp-project"       # (Optional) Override GCP project. Default: current project.
+    from_secret: false                 # (Optional) Read admin credentials from Secret Manager. Default: false.
+    secret_id: "pg-admin-credentials"  # (Required when from_secret=true) Secret Manager secret ID.
+                                       #   The secret must be a JSON object with keys:
+                                       #   host, port, username, password, dbname.
+    server_name: "my-pg"               # (Optional) Override server_name used in secret paths and hoop output.
+    sslmode: "require"                 # (Optional) SSL mode. Default: require.
+    superuser: false                   # (Optional) Is admin user a superuser. Default: false.
+
+  direct:                              # (Optional) Direct host connection — used when cloudsql.enabled=false.
+    server_name: "pg-prod"             # (Required) Identifier used in secret paths and hoop output.
+    host: "10.0.0.5"                   # (Required) PostgreSQL host.
+    port: 5432                         # (Required) PostgreSQL port.
+    username: "postgres"               # (Required) Admin username.
+    password: "s3cr3t"                 # (Required) Admin password.
+    engine: "postgresql"               # (Optional) Engine name stored in credentials. Default: postgresql.
+    db_name: "postgres"                # (Required) Default database for provider connection.
+    sslmode: "require"                 # (Optional) SSL mode. Default: require.
+    superuser: false                   # (Optional) Is admin user a superuser. Default: false.
+
+  # ── Databases ──────────────────────────────────────────────────────────────────
+
+  databases:                           # (Optional) Map of PostgreSQL databases to create.
+    app_db:
+      name: "appdb"                    # (Required) Name of the database.
+      create_owner: true               # (Optional) Create a dedicated owner role (<name>_ow). Default: false.
+      owner: ""                        # (Optional) Owner name when create_owner=false.
+      collate: "en_US.UTF-8"           # (Optional) Collation. Default: en_US.UTF-8.
+      ctype: "en_US.UTF-8"             # (Optional) Character type. Default: en_US.UTF-8.
+      connection_limit: -1             # (Optional) Max connections. Default: -1 (unlimited).
+      is_template: false               # (Optional) Mark as template. Default: false.
+      template: "template0"            # (Optional) Source template. Default: template0.
+      encoding: "UTF8"                 # (Optional) Encoding. Default: UTF8.
+      allow_connections: true          # (Optional) Allow connections. Default: true.
+      alter_object_ownership: false    # (Optional) Reassign objects to owner on create. Default: false.
+      import: false                    # (Optional) Import existing database (skip CREATE). Default: false.
+      schemas:
+        - name: "public"               # (Required) Schema name.
+          owner: "appdb_ow"            # (Optional) Schema owner.
+          reuse: true                  # (Optional) Use IF NOT EXISTS. Default: true.
+          cascade_on_delete: false     # (Optional) DROP CASCADE on destroy. Default: false.
+
+  # ── Users ──────────────────────────────────────────────────────────────────────
+
+  users:                               # (Optional) Map of PostgreSQL users to create and manage.
+    app_user:
+      name: "appuser"                  # (Required) PostgreSQL username.
+      grant: "readwrite"               # (Required) Grant type: owner | readwrite | readonly.
+      db_ref: "app_db"                 # (Optional) Reference to a databases key; takes precedence over database_name.
+      database_name: ""                # (Optional) Database name when db_ref not set.
+      database_owner: ""               # (Conditionally Required) Owner role when grant=owner without db_ref.
+      schema: "public"                 # (Optional) Schema to grant on. Default: public.
+      login: true                      # (Optional) Can login. Default: true.
+      superuser: false                 # (Optional) Is superuser. Default: false.
+      create_database: false           # (Optional) Can create databases. Default: false.
+      replication: false               # (Optional) Can replicate. Default: false.
+      encrypted_password: true         # (Optional) Encrypt password. Default: true.
+      inherit: true                    # (Optional) Inherit role privileges. Default: true.
+      create_role: false               # (Optional) Can create roles. Default: false.
+      connection_limit: -1             # (Optional) Max connections. Default: -1 (unlimited).
+      import: false                    # (Optional) Import existing user (skip CREATE). Default: false.
+      connection_string_type: ""       # (Optional) Format for connection_string in secret.
+                                       #   Values: jdbc | dotnet | odbc | gopq | node-pg | psycopg | rustpg.
+      hoop:
+        access_control: []             # (Optional) Access control groups for this user's hoop connection.
+
+  # ── Roles ──────────────────────────────────────────────────────────────────────
+
+  roles:                               # (Optional) Map of PostgreSQL roles (no-login) to create.
+    readonly_role:
+      name: "readonly"                 # (Required) Role name.
+      grant: "readonly"                # (Required) Grant type: owner | readwrite | readonly.
+      db_ref: "app_db"                 # (Optional) Reference to a databases key.
+      database_name: ""                # (Optional) Database name when db_ref not set.
+      schema: "public"                 # (Optional) Schema. Default: public.
+      create_database: false           # (Optional) Default: false.
+      replication: false               # (Optional) Default: false.
+      inherit: true                    # (Optional) Default: true.
+      create_role: false               # (Optional) Default: false.
+      connection_limit: -1             # (Optional) Default: -1.
+      import: false                    # (Optional) Import existing role. Default: false.
+
+  # ── Hoop integration ───────────────────────────────────────────────────────────
+
+  hoop:                                # (Optional) Hoop enterprise connection output settings.
+    enabled: false                     # (Optional) Emit hoop_connections output. Default: false.
+    agent_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                                       # (Required when enabled + enterprise) Hoop agent UUID.
+    community: true                    # (Optional) true=community (null payload, secret in GCP SM);
+                                       #   false=enterprise (embedded connection string). Default: true.
+    import: false                      # (Optional) Import existing hoop connection. Default: false.
+    default_sslmode: "require"         # (Optional) SSL mode in hoop secrets. Default: require.
+    tags: {}                           # (Optional) Tags map to attach to all hoop connections.
+    access_control: []                 # (Optional) Default access control groups for all connections.
+
+  # ── Secret Manager settings ────────────────────────────────────────────────────
+
+  secrets_kms_key_name: null           # (Optional) Full resource name of a Cloud KMS key used to encrypt
+                                       #   secrets at rest (CMEK). Default: null (Google-managed key).
+                                       #   Format: projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>
+
+  # ── Password lifecycle ─────────────────────────────────────────────────────────
+
+  password_rotation_period: 90         # (Optional) Password rotation period in days. Default: 90.
+  force_reset: false                   # (Optional) Force reset all passwords on next apply. Default: false.
+  ```
 
 # Example usage
 examples: |-
+  ### Cloud SQL with Secret Manager credentials and Hoop enterprise output
+
+  ```yaml
+  # .boilerplate/inputs.yaml
+
+  cloudsql:
+    enabled: true
+    instance_name: "my-project:us-central1:pg-prod"
+    from_secret: true
+    secret_id: "pg-admin-creds"
+    server_name: "pg-prod"
+    sslmode: "require"
+
+  databases:
+    orders:
+      name: "orders"
+      create_owner: true
+
+  users:
+    api_user:
+      name: "api"
+      grant: "readwrite"
+      db_ref: "orders"
+      connection_string_type: "jdbc"
+      hoop:
+        access_control: ["engineering"]
+
+  hoop:
+    enabled: true
+    community: false
+    agent_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    access_control: ["dba-team"]
+
+  secrets_kms_key_name: "projects/my-project/locations/us-central1/keyRings/terraform/cryptoKeys/secrets"
+  password_rotation_period: 30
+  force_reset: false
+  ```
+
+  ### Direct connection (non-Cloud-SQL PostgreSQL)
+
+  ```yaml
+  # .boilerplate/inputs.yaml
+
+  direct:
+    server_name: "pg-analytics"
+    host: "10.128.0.10"
+    port: 5432
+    username: "postgres"
+    password: "change-me"
+    db_name: "postgres"
+    sslmode: "disable"
+
+  databases:
+    analytics:
+      name: "analytics"
+      create_owner: true
+
+  users:
+    etl_user:
+      name: "etl"
+      grant: "readwrite"
+      db_ref: "analytics"
+
+  hoop:
+    enabled: false
+
+  password_rotation_period: 90
+  force_reset: false
+  ```
 
 # How to get started quickly
 quickstart: |-
+  1. **Add the source** to your Terragrunt stack:
+
+     ```hcl
+     # terragrunt.hcl
+     terraform {
+       source = "git::https://github.com/cloudopsworks/terraform-module-gcp-postgres-management.git?ref=v1.1.1"
+     }
+     ```
+
+  2. **Copy the inputs template** to your environment directory:
+
+     ```sh
+     mkdir -p .boilerplate
+     curl -fsSL https://raw.githubusercontent.com/cloudopsworks/terraform-module-gcp-postgres-management/master/.boilerplate/inputs.yaml \
+       > .boilerplate/inputs.yaml
+     ```
+
+  3. **Configure the connection source.** For Cloud SQL:
+
+     ```yaml
+     cloudsql:
+       enabled: true
+       instance_name: "my-project:us-central1:my-instance"
+       server_name: "my-instance"
+     ```
+
+     Or for a direct host:
+
+     ```yaml
+     direct:
+       server_name: "pg-dev"
+       host: "127.0.0.1"
+       port: 5432
+       username: "postgres"
+       password: "postgres"
+       db_name: "postgres"
+     ```
+
+  4. **Define at least one database and one user:**
+
+     ```yaml
+     databases:
+       mydb:
+         name: "mydb"
+         create_owner: true
+
+     users:
+       app:
+         name: "app"
+         grant: "readwrite"
+         db_ref: "mydb"
+     ```
+
+  5. **Apply:**
+
+     ```sh
+     terragrunt apply
+     ```
+
+     The user's credentials will be available as a versioned secret in GCP Secret Manager under a path derived from `server_name` and the username.
 
 include:
   - "docs/targets.md"
