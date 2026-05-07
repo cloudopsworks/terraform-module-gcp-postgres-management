@@ -209,14 +209,17 @@ output "hoop_connections" {
     },
     {
       for k, user in var.users : "${local.psql.server_name}-${try(user.db_ref, "") != "" ? var.databases[user.db_ref].name : user.database_name}-${user.name}" => {
-        name           = "${local.psql.server_name}-${try(user.db_ref, "") != "" ? var.databases[user.db_ref].name : user.database_name}-${user.name}"
-        agent_id       = var.hoop.agent_id
-        type           = "database"
-        subtype        = "postgres"
-        tags           = try(var.hoop.tags, {})
-        access_control = toset(try(var.hoop.access_control, []))
-        access_modes   = { connect = "enabled", exec = "enabled", runbooks = "enabled", schema = "enabled" }
-        import         = try(var.hoop.import, false)
+        name     = "${local.psql.server_name}-${try(user.db_ref, "") != "" ? var.databases[user.db_ref].name : user.database_name}-${user.name}"
+        agent_id = var.hoop.agent_id
+        type     = "database"
+        subtype  = "postgres"
+        tags     = try(var.hoop.tags, {})
+        access_control = setunion(
+          toset(try(var.hoop.access_control, [])),
+          toset(try(user.hoop.access_control, []))
+        )
+        access_modes = { connect = "enabled", exec = "enabled", runbooks = "enabled", schema = "enabled" }
+        import       = try(var.hoop.import, false)
         secrets = {
           "envvar:HOST"    = "_envs/gcp/${google_secret_manager_secret.hoop_user_host[k].secret_id}"
           "envvar:PORT"    = "_envs/gcp/${google_secret_manager_secret.hoop_user_port[k].secret_id}"
